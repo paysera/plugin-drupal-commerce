@@ -1,0 +1,120 @@
+<?php
+
+require_once('vendor/webtopay/libwebtopay/WebToPay.php');
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_paysera_menu() {
+    $items = array();
+
+    // Define an always accessible path to receive IPNs.
+    $items['commerce_paysera/ipn'] = array(
+        'page callback'   => 'commerce_paysera_process_ipn',
+        'page arguments'  => array(),
+        'access callback' => TRUE,
+        'type'            => MENU_CALLBACK,
+    );
+
+    // Define an additional IPN path that is payment method / instance specific.
+    $items['commerce_paysera/ipn/%commerce_payment_method_instance'] = array(
+        'page callback'   => 'commerce_paysera_process_ipn',
+        'page arguments'  => array(2),
+        'access callback' => TRUE,
+        'type'            => MENU_CALLBACK,
+    );
+
+    return $items;
+}
+
+/**
+ * Processes an incoming IPN.
+ *
+ * @param $payment_method
+ *   The payment method instance array that originally made the payment.
+ * @return
+ *   TRUE or FALSE indicating whether the IPN was successfully processed or not.
+ */
+function commerce_paysera_process_ipn($payment_method = NULL) {
+    try {
+        $data = WebToPay::checkResponse(
+            $_REQUEST,
+            array(
+                'projectid'     => $payment_method['settings']['projectId'],
+                'sign_password' => $payment_method['settings']['projectPass'],
+            )
+        );
+    } catch (Exception $e) {
+        exit(get_class($e) . ': ' . $e->getMessage());
+    }
+
+    if ($data['status'] == 1) {
+
+
+        $orderData = commerce_order_load($data['orderid']);
+        $Order     = entity_metadata_wrapper('commerce_order', $orderData);
+
+        if (intval(number_format($Order->commerce_order_total->amount->value(),0,'','')) > $data['amount']) {
+            exit('Bad amount: ' . $data['amount']);
+        }
+
+        if ($Order->commerce_order_total->currency_code->value() != $data['currency']) {
+            exit('Bad amount: ' . $data['currency']);
+        }
+
+        $transaction = commerce_payment_transaction_new('paysera_wps', $data['orderid']);
+
+        $transaction->instance_id                 = $payment_method['instance_id'];
+        $transaction->remote_id                   = $data['requestid'];
+        $transaction->amount                      = $data['amount'];
+        $transaction->currency_code               = $data['currency'];
+        $transaction->remote_status               = $data['status'];
+        $transaction->created                     = date('Y-m-d H:m:s', strtotime('NOW'));
+        $transaction->payload['original_request'] = $_REQUEST['data'];
+        $transaction->status                      = COMMERCE_PAYMENT_STATUS_SUCCESS;
+        $transaction->message                     = t('The payment has completed.');
+
+        commerce_payment_transaction_save($transaction);
+        commerce_order_status_update($orderData, 'processed', false, false);
+    }
+    exit('OK');
+}
+
+/**
+ * Returns an array of Paysera payment method icon img elements.
+ *
+ * @return
+ *   The array of themed payment method icons keyed by language: lt, en
+ */
+function commerce_paysera_icons() {
+    $icons = array();
+
+    $icons['lt'] = theme(
+        'image',
+        array(
+            'path'  => drupal_get_path('module', 'commerce_paysera') . '/images/mokejimai.png',
+            'title' => 'Mokejimai.lt',
+            'alt'   => 'Mokejimai.lt',
+        )
+    );
+
+    $icons['en'] = theme(
+        'image',
+        array(
+            'path'  => drupal_get_path('module', 'commerce_paysera') . '/images/paysera.png',
+            'title' => 'Paysera.com',
+            'alt'   => 'Paysera.com',
+        )
+    );
+
+    $icons['ru'] = theme(
+        'image',
+        array(
+            'path'  => drupal_get_path('module', 'commerce_paysera') . '/images/paysera.png',
+            'title' => 'Paysera.com',
+            'alt'   => 'Paysera.com',
+        )
+    );
+
+    return $icons;
+}

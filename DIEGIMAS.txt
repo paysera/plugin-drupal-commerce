@@ -1,0 +1,11 @@
+DIEGIMAS
+
+1. Nukopijuokite "commerce_paysera" aplanka i Drupal modules direktorija;
+2. Administratoriaus aplinkoje eikite i "Modules" skilti ir "COMMERCE (PAYSERA)"
+   sklityje ijunkite Paysera ir Paysera WPS modulius;
+3. Eikite i Store->Configuration->Payment Methods->Paysera WPS ir spauskite
+   "Enable payment method: Paysera WPS";
+4. "PAYMENT SETTINGS" skiltyje iveskite Jusu mokejimai.lt projekto ID ir 
+    slaptazodi, issaugokite.
+
+Iskilus integravimo problemoms kreipkites i pagalba@mokejimai.lt (darbo valandomis).

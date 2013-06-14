@@ -1,0 +1,8 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function commerce_paysera_schema() {
+    return array();
+}
