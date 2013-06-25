@@ -1,0 +1,167 @@
+<?php
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_paysera_wps_commerce_payment_method_info() {
+    global $language;
+
+    $payment_methods = array();
+    $icons           = commerce_paysera_icons();
+
+    $display_title = t('!logo Pay via Paysera.com payment collection service', array('!logo' => $icons[$language->language]));
+
+    $payment_methods['paysera_wps'] = array(
+        'base'                 => 'commerce_paysera_wps',
+        'title'                => t('Paysera WPS'),
+        'short_title'          => t('Paysera'),
+        'display_title'        => $display_title,
+        'description'          => t('Paysera Website Payments Standard'),
+        'terminal'             => false,
+        'offsite'              => true,
+        'offsite_autoredirect' => true,
+    );
+
+    return $payment_methods;
+}
+
+/**
+ * Payment method callback: settings form.
+ */
+function commerce_paysera_wps_settings_form($settings = NULL) {
+    $form = array();
+
+    $form['projectId'] = array(
+        '#type'          => 'textfield',
+        '#title'         => t('Project ID'),
+        '#description'   => t('Your Paysera.com project ID'),
+        '#default_value' => $settings['projectId'],
+        '#required'      => true,
+    );
+
+    $form['projectPass'] = array(
+        '#type'          => 'textfield',
+        '#title'         => t('Project password'),
+        '#description'   => t('Your Paysera.com project password'),
+        '#default_value' => $settings['projectPass'],
+        '#required'      => true,
+    );
+
+    $form['testMode'] = array(
+        '#type'          => 'radios',
+        '#title'         => t('Enable test mode?'),
+        '#options'       => array(
+            '0' => ('No'),
+            '1' => ('Yes'),
+        ),
+        '#default_value' => $settings['testMode'],
+    );
+
+    return $form;
+}
+
+/**
+ * Payment method callback: adds a message to the submission form.
+ */
+function commerce_paysera_wps_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+    $form['paysera_wps_information'] = array(
+        '#markup' => '<span>' . t('(Continue with checkout to complete payment via Paysera.)') . '</span>',
+    );
+
+    return $form;
+}
+
+/**
+ * Payment method callback: redirect form, a wrapper around the module's general
+ *   use function for building a WPS form.
+ */
+function commerce_paysera_wps_redirect_form($form, &$form_state, $order, $payment_method) {
+    $payment_method['settings']['method_id'] = $payment_method['method_id'];
+
+    return commerce_paysera_wps_order_form($form, $form_state, $order, $payment_method['settings']);
+}
+
+/**
+ * Payment method callback: redirect form return validation.
+ */
+function commerce_paysera_wps_redirect_form_validate($order, $payment_method) {
+    return true;
+}
+
+/**
+ * Builds a Website Payments Standard form from an order object.
+ *
+ * @param $order
+ *   The fully loaded order being paid for.
+ * @param $settings
+ *   An array of settings used to build out the form, including:
+ *   - server: which server to use, either sandbox or live
+ *   - business: the Paysera e-mail address the payment submits to
+ *   - cancel_return: the URL Paysera should send the user to on cancellation
+ *   - return: the URL Paysera should send the user to on successful payment
+ *   - currency_code: the Paysera currency code to use for this payment if the
+ *     total for the order is in a non-Paysera supported currency
+ *   - language: the Paysera language code to use on the payment form
+ *   - payment_action: the Paysera payment action to use: sale, authorization,
+ *     or order
+ *   - payment_method: optionally the name of the Commerce payment method to
+ *     include in the IPN notify_url
+ *
+ * @return
+ *   A renderable form array.
+ */
+function commerce_paysera_wps_order_form($form, &$form_state, $order, $settings) {
+    global $language;
+
+    $Order   = entity_metadata_wrapper('commerce_order', $order);
+    $billing = $Order->commerce_customer_billing->commerce_customer_address->value();
+    $names   = commerce_paysera_wps_get_name($billing['name_line']);
+
+    try {
+        $request = WebToPay::buildRequest(array(
+            'projectid'     => $settings['projectId'],
+            'sign_password' => $settings['projectPass'],
+            'orderid'       => $order->order_id,
+            'amount'        => $Order->commerce_order_total->amount->value(),
+
+            'currency'      => intval(number_format($Order->commerce_order_total->currency_code->value(), 0, '', '')),
+
+            'accepturl'     => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+            'cancelurl'     => url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+            'callbackurl'   => url('commerce_paysera/ipn/' . $settings['method_id'] . '|commerce_payment_paysera_wps', array('absolute' => TRUE)),
+
+            'country'       => $billing['country'],
+            'p_firstname'   => $names['firstname'],
+            'p_lastname'    => $names['lastname'],
+            //'p_email'       => $userData['email'],
+            'p_street'      => $billing['thoroughfare'],
+            'p_city'        => $billing['locality'],
+            'p_zip'         => $billing['postal_code'],
+            'p_countrycode' => $billing['country'],
+            'test'          => $settings['testMode'],
+        ));
+    } catch (WebToPayException $e) {
+        echo get_class($e) . ': ' . $e->getMessage();
+    }
+
+    $form['#action'] = WebToPay::getPaymentUrl(strtoupper($language->language));
+
+    foreach ($request as $name => $value) {
+        $form[$name] = array('#type' => 'hidden', '#value' => $value);
+    }
+
+    $form['submit'] = array(
+        '#type'  => 'submit',
+        '#value' => t('Proceed to Paysera'),
+    );
+
+    return $form;
+}
+
+function commerce_paysera_wps_get_name($name) {
+    $names = explode(' ', $name);
+    return array(
+        'firstname' => $names[0],
+        'lastname'  => $names[1],
+    );
+}
